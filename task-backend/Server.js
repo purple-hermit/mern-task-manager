@@ -9,6 +9,14 @@ const path = require('path');
 const User = require('./models/User');
 const Task = require('./models/Task');
 
+const rateLimit = require('express-rate-limit');
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  message: { error: 'Too many attempts, please try again later.' }
+});
+
 const app = express();
 app.use(cors({
   origin: process.env.CLIENT_ORIGIN || 'http://localhost:5000',
@@ -42,7 +50,7 @@ const authenticateToken = (req, res, next) => {
 // ==========================================
 
 // Register
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     const existingUser = await User.findOne({ email });
@@ -63,7 +71,7 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // Login
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
