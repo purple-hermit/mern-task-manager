@@ -108,7 +108,18 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
 // Create a new task
 app.post('/api/tasks', authenticateToken, async (req, res) => {
   try {
-    const newTask = await Task.create({ ...req.body, user: req.user.id });
+    const { title, description, priority, category, dueDate, status } = req.body;
+    if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required' });
+
+    const newTask = await Task.create({
+      title: title.trim(),
+      description: description?.trim() || '',
+      priority: priority || 'medium',
+      category: category?.trim() || '',
+      dueDate: dueDate || undefined,
+      status: status || 'todo',
+      user: req.user.id,
+    });
     res.json({ ...newTask.toObject(), id: newTask._id });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -118,10 +129,11 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
 // Update a task (e.g., cycling status)
 app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
   try {
-    const updatedTask = await Task.findOneAndUpdate(
-      { _id: req.params.id, user: req.user.id }, // Ensure they own it!
-      req.body,
-      { new: true } // Return the updated document
+    const { title, description, priority, category, dueDate, status } = req.body;
+const updatedTask = await Task.findOneAndUpdate(
+      { _id: req.params.id, user: req.user.id },
+      { title, description, priority, category, dueDate, status },
+      { new: true, runValidators: true }
     );
     res.json({ ...updatedTask.toObject(), id: updatedTask._id });
   } catch (err) {
