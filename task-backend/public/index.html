@@ -98,7 +98,7 @@ const TaskCtx = createContext(null);
 
 /* ── API helper ──────────────────────────────────────────── */
 async function apiFetch(path, opts = {}) {
-  const token = localStorage.getItem('tf_token');
+  const token = sessionStorage.getItem('tf_token');
   const res = await fetch(`${API}${path}`, {
     headers: {
       'Content-Type': 'application/json',
@@ -119,38 +119,38 @@ function AuthProvider({ children }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // Server has no /me endpoint — restore user from localStorage
-    const token = localStorage.getItem('tf_token');
-    const saved = localStorage.getItem('tf_user');
+    // Server has no /me endpoint — restore user from sessionStorage
+    const token = sessionStorage.getItem('tf_token');
+    const saved = sessionStorage.getItem('tf_user');
     if (token && saved) {
       try {
         // Check token hasn't expired (JWT payload is base64 middle segment)
         const payload = JSON.parse(atob(token.split('.')[1]));
         if (payload.exp * 1000 > Date.now()) setUser(JSON.parse(saved));
-        else { localStorage.removeItem('tf_token'); localStorage.removeItem('tf_user'); }
-      } catch { localStorage.removeItem('tf_token'); localStorage.removeItem('tf_user'); }
+        else { sessionStorage.removeItem('tf_token'); sessionStorage.removeItem('tf_user'); }
+      } catch { sessionStorage.removeItem('tf_token'); sessionStorage.removeItem('tf_user'); }
     }
     setReady(true);
   }, []);
 
   const login = useCallback(async (email, password) => {
     const d = await apiFetch('/auth/login', { method: 'POST', body: { email, password } });
-    localStorage.setItem('tf_token', d.token);
-    localStorage.setItem('tf_user', JSON.stringify(d.user));
+    sessionStorage.setItem('tf_token', d.token);
+    sessionStorage.setItem('tf_user', JSON.stringify(d.user));
     setUser(d.user);
   }, []);
 
   const register = useCallback(async (name, email, password) => {
     // Your server.js register only takes email + password, name ignored for now
     const d = await apiFetch('/auth/register', { method: 'POST', body: { email, password } });
-    localStorage.setItem('tf_token', d.token);
-    localStorage.setItem('tf_user', JSON.stringify(d.user));
+    sessionStorage.setItem('tf_token', d.token);
+    sessionStorage.setItem('tf_user', JSON.stringify(d.user));
     setUser(d.user);
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('tf_token');
-    localStorage.removeItem('tf_user');
+    sessionStorage.removeItem('tf_token');
+    sessionStorage.removeItem('tf_user');
     setUser(null);
   }, []);
 

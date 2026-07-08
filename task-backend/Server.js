@@ -65,9 +65,10 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     // Generate JWT
     const token = jwt.sign({ id: newUser._id, email: newUser.email }, process.env.JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { id: newUser._id, email: newUser.email } });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    } catch (err) {
+  console.error(err); // keep the real error in your server logs
+  res.status(500).json({ error: 'Something went wrong' });
+}
 });
 
 // Login
@@ -83,9 +84,10 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { id: user._id, email: user.email } });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    } catch (err) {
+  console.error(err); // keep the real error in your server logs
+  res.status(500).json({ error: 'Something went wrong' });
+}
 });
 
 // ==========================================
@@ -96,13 +98,27 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 app.get('/api/tasks', authenticateToken, async (req, res) => {
   try {
     // Only find tasks where the 'user' field matches the token's user ID
-    const tasks = await Task.find({ user: req.user.id }).sort({ createdAt: -1 });
+    const { status, search } = req.query;
+    const query = { user: req.user.id };
+
+    if (status && ['todo', 'inprogress', 'done'].includes(status)) {
+      query.status = status;
+    }
+    if (search && search.trim()) {
+      query.$or = [
+        { title: { $regex: search.trim(), $options: 'i' } },
+        { description: { $regex: search.trim(), $options: 'i' } },
+      ];
+    }
+
+    const tasks = await Task.find(query).sort({ createdAt: -1 });
     // Map _id to id so it matches our React frontend expectations
     const formattedTasks = tasks.map(t => ({ ...t.toObject(), id: t._id }));
     res.json(formattedTasks);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    } catch (err) {
+  console.error(err); // keep the real error in your server logs
+  res.status(500).json({ error: 'Something went wrong' });
+}
 });
 
 // Create a new task
@@ -121,9 +137,10 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
       user: req.user.id,
     });
     res.json({ ...newTask.toObject(), id: newTask._id });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    } catch (err) {
+  console.error(err); // keep the real error in your server logs
+  res.status(500).json({ error: 'Something went wrong' });
+}
 });
 
 // Update a task (e.g., cycling status)
@@ -136,9 +153,10 @@ const updatedTask = await Task.findOneAndUpdate(
       { new: true, runValidators: true }
     );
     res.json({ ...updatedTask.toObject(), id: updatedTask._id });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    } catch (err) {
+  console.error(err); // keep the real error in your server logs
+  res.status(500).json({ error: 'Something went wrong' });
+}
 });
 
 // Delete a task
@@ -146,9 +164,10 @@ app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
   try {
     await Task.findOneAndDelete({ _id: req.params.id, user: req.user.id });
     res.json({ message: 'Task deleted' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    } catch (err) {
+  console.error(err); // keep the real error in your server logs
+  res.status(500).json({ error: 'Something went wrong' });
+}
 });
 
 // --- START SERVER ---
