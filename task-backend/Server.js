@@ -10,7 +10,10 @@ const User = require('./models/User');
 const Task = require('./models/Task');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: process.env.CLIENT_ORIGIN || 'http://localhost:5000',
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
