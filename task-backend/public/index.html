@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaskFlow — MERN Task Manager</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: 'DM Mono', monospace; background: #0e0e0e; color: #e8e4dc; min-height: 100vh; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: #1a1a1a; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+  input, textarea, select {
+    font-family: 'DM Mono', monospace; background: #1a1a1a; border: 1px solid #2a2a2a;
+    color: #e8e4dc; border-radius: 4px; padding: 8px 12px; font-size: 13px;
+    outline: none; transition: border-color 0.2s; width: 100%;
+  }
+  input:focus, textarea:focus, select:focus { border-color: #5a8a6a; }
+  input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.5); }
+  button { font-family: 'DM Mono', monospace; cursor: pointer; border: none; border-radius: 4px; transition: all 0.15s; }
+  button:hover { opacity: 0.85; }
+  textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+  select option { background: #1a1a1a; color: #e8e4dc; }
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 200; padding: 1rem; animation: fadeIn 0.15s ease;
+  }
+  .modal-box {
+    background: #141414; border: 1px solid #2a2a2a; border-radius: 10px;
+    padding: 1.75rem; width: 100%; max-width: 520px; animation: slideUp 0.2s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .task-card {
+    background: #141414; border: 1px solid #1e1e1e; border-radius: 6px;
+    padding: 1rem 1rem 1rem 1.1rem; margin-bottom: 8px;
+    transition: border-color 0.2s, transform 0.15s; position: relative;
+  }
+  .task-card:hover { border-color: #2a2a2a; transform: translateX(2px); }
+  .stat-btn {
+    background: #141414; border: 1px solid #1e1e1e; border-radius: 6px;
+    padding: 14px 12px; text-align: left; cursor: pointer; transition: all 0.15s;
+  }
+  .stat-btn:hover { border-color: #333; background: #1a1a1a; }
+  .stat-btn.active { background: #1e1e1e; border-color: #333; }
+  .dropdown-menu {
+    position: absolute; right: 0; top: 36px; background: #1e1e1e;
+    border: 1px solid #2a2a2a; border-radius: 6px; z-index: 50;
+    min-width: 155px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    animation: fadeIn 0.1s ease;
+  }
+  .dropdown-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 14px;
+    background: transparent; color: #aaa; font-size: 12px; text-align: left;
+    border-bottom: 1px solid #252525; transition: background 0.1s; font-family: 'DM Mono', monospace; cursor: pointer;
+  }
+  .dropdown-item:last-child { border-bottom: none; }
+  .dropdown-item:hover { background: #252525; }
+  .dropdown-item.active-status { color: #5a8a6a; background: #1a2a1a; }
+  .dropdown-item.danger { color: #c0392b; }
+  .dropdown-item.danger:hover { background: rgba(192,57,43,0.1); }
+  .icon-btn {
+    background: transparent; border: none; display: flex; align-items: center;
+    justify-content: center; border-radius: 4px; cursor: pointer;
+    transition: background 0.15s, color 0.15s; color: #555; font-family: 'DM Mono', monospace;
+  }
+  .icon-btn:hover { background: #1e1e1e; color: #aaa; }
+  .tag {
+    font-size: 10px; padding: 2px 8px; border-radius: 3px; letter-spacing: 1px;
+    text-transform: uppercase; display: inline-flex; align-items: center; gap: 4px;
+  }
+  .spinner {
+    width: 20px; height: 20px; border: 2px solid #2a2a2a;
+    border-top-color: #5a8a6a; border-radius: 50%; animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { createContext, useContext, useState, useEffect, useCallback } = React;
+
+/* ── Config ─────────────────────────────────────────────── */
+// Change this if your server runs on a different port
+const API = 'http://localhost:5000/api';
+
+/* ── Contexts ────────────────────────────────────────────── */
+const AuthCtx = createContext(null);
+const TaskCtx = createContext(null);
+
+/* ── API helper ──────────────────────────────────────────── */
+async function apiFetch(path, opts = {}) {
+  const token = localStorage.getItem('tf_token');
+  const res = await fetch(`${API}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await res.json();
+  // server.js uses { error } for error responses
+  if (!res.ok) throw new Error(data.error || data.message || 'Request failed');
+  return data;
+}
+
+/* ── Auth Provider ──────────────────────────────────────── */
+function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    // Server has no /me endpoint — restore user from localStorage
+    const token = localStorage.getItem('tf_token');
+    const saved = localStorage.getItem('tf_user');
+    if (token && saved) {
+      try {
+        // Check token hasn't expired (JWT payload is base64 middle segment)
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.exp * 1000 > Date.now()) setUser(JSON.parse(saved));
+        else { localStorage.removeItem('tf_token'); localStorage.removeItem('tf_user'); }
+      } catch { localStorage.removeItem('tf_token'); localStorage.removeItem('tf_user'); }
+    }
+    setReady(true);
+  }, []);
+
+  const login = useCallback(async (email, password) => {
+    const d = await apiFetch('/auth/login', { method: 'POST', body: { email, password } });
+    localStorage.setItem('tf_token', d.token);
+    localStorage.setItem('tf_user', JSON.stringify(d.user));
+    setUser(d.user);
+  }, []);
+
+  const register = useCallback(async (name, email, password) => {
+    // Your server.js register only takes email + password, name ignored for now
+    const d = await apiFetch('/auth/register', { method: 'POST', body: { email, password } });
+    localStorage.setItem('tf_token', d.token);
+    localStorage.setItem('tf_user', JSON.stringify(d.user));
+    setUser(d.user);
+  }, []);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem('tf_token');
+    localStorage.removeItem('tf_user');
+    setUser(null);
+  }, []);
+
+  if (!ready) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div className="spinner" />
+    </div>
+  );
+
+  return <AuthCtx.Provider value={{ user, login, register, logout }}>{children}</AuthCtx.Provider>;
+}
+
+/* ── Task Provider ──────────────────────────────────────── */
+function TaskProvider({ children }) {
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchTasks = useCallback(async (params = {}) => {
+    setLoading(true);
+    try {
+      const qs = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([,v])=>v))).toString();
+      const data = await apiFetch(`/tasks${qs ? '?' + qs : ''}`);
+      setTasks(data);
+    } catch(e) { console.error(e); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchTasks(); }, []);
+
+  const addTask = useCallback(async body => {
+    const t = await apiFetch('/tasks', { method: 'POST', body });
+    setTasks(prev => [t, ...prev]);
+    return t;
+  }, []);
+
+  const updateTask = useCallback(async (id, body) => {
+    const t = await apiFetch(`/tasks/${id}`, { method: 'PUT', body });
+    setTasks(prev => prev.map(x => x.id === id ? t : x));
+    return t;
+  }, []);
+
+  // No PATCH /status on your server — reuse PUT
+  const changeStatus = useCallback(async (id, status) => {
+    const t = await apiFetch(`/tasks/${id}`, { method: 'PUT', body: { status } });
+    setTasks(prev => prev.map(x => x.id === id ? t : x));
+  }, []);
+
+  const deleteTask = useCallback(async id => {
+    await apiFetch(`/tasks/${id}`, { method: 'DELETE' });
+    setTasks(prev => prev.filter(x => x.id !== id));
+  }, []);
+
+  return (
+    <TaskCtx.Provider value={{ tasks, loading, fetchTasks, addTask, updateTask, changeStatus, deleteTask }}>
+      {children}
+    </TaskCtx.Provider>
+  );
+}
+
+/* ── Constants ───────────────────────────────────────────── */
+const PRIORITIES = {
+  high:   { label: 'High',   color: '#c0392b' },
+  medium: { label: 'Medium', color: '#d4a017' },
+  low:    { label: 'Low',    color: '#3a7d5c' },
+};
+const STATUSES = {
+  todo:       { label: 'To Do',       icon: 'ti-circle',       bg: '#1e1e1e', fg: '#888' },
+  inprogress: { label: 'In Progress', icon: 'ti-progress',     bg: '#0e1e2e', fg: '#4a9fd4' },
+  done:       { label: 'Done',        icon: 'ti-circle-check', bg: '#0e1e14', fg: '#5a8a6a' },
+};
+
+/* ── Auth Screen ─────────────────────────────────────────── */
+function AuthScreen() {
+  const { login, register } = useContext(AuthCtx);
+  const [mode, setMode] = useState('login');
+  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const submit = async e => {
+    e.preventDefault(); setError(''); setLoading(true);
+    try {
+      if (mode === 'login') await login(form.email, form.password);
+      else await register(form.name, form.email, form.password);
+    } catch (err) { setError(err.message); }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
+      <div style={{ width: '100%', maxWidth: 400 }}>
+        <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
+          <div style={{ fontFamily: 'Fraunces, serif', fontSize: 52, fontWeight: 300, letterSpacing: '-2px', lineHeight: 1 }}>
+            task<em style={{ fontStyle: 'italic', color: '#5a8a6a' }}>flow</em>
+          </div>
+          <div style={{ fontSize: 11, color: '#444', marginTop: 10, letterSpacing: '2px' }}>
+            MONGODB · EXPRESS · REACT · NODE.JS
+          </div>
+        </div>
+        <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 10, padding: '2rem' }}>
+          <div style={{ display: 'flex', background: '#1a1a1a', borderRadius: 6, padding: 3, marginBottom: '1.5rem' }}>
+            {['login', 'register'].map(m => (
+              <button key={m} onClick={() => { setMode(m); setError(''); }}
+                style={{ flex: 1, padding: '8px', fontSize: 11, letterSpacing: '1.5px', textTransform: 'uppercase',
+                  background: mode === m ? '#2a2a2a' : 'transparent',
+                  color: mode === m ? '#e8e4dc' : '#555', borderRadius: 4 }}>
+                {m === 'login' ? 'Sign In' : 'Register'}
+              </button>
+            ))}
+          </div>
+          <form onSubmit={submit}>
+            {mode === 'register' && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 11, color: '#555', display: 'block', marginBottom: 5, letterSpacing: '1px', textTransform: 'uppercase' }}>Name</label>
+                <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="Your name" required />
+              </div>
+            )}
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 11, color: '#555', display: 'block', marginBottom: 5, letterSpacing: '1px', textTransform: 'uppercase' }}>Email</label>
+              <input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="you@example.com" required />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 11, color: '#555', display: 'block', marginBottom: 5, letterSpacing: '1px', textTransform: 'uppercase' }}>Password</label>
+              <input type="password" value={form.password} onChange={e => set('password', e.target.value)} placeholder="••••••••" required minLength={6} />
+            </div>
+            {error && (
+              <div style={{ fontSize: 12, color: '#c0392b', marginBottom: 14, padding: '9px 12px',
+                background: 'rgba(192,57,43,0.08)', borderRadius: 4, border: '1px solid rgba(192,57,43,0.2)' }}>
+                <i className="ti ti-alert-circle" style={{ marginRight: 6 }} />{error}
+              </div>
+            )}
+            <button type="submit" disabled={loading} style={{
+              width: '100%', padding: '11px', background: '#5a8a6a', color: '#e8e4dc',
+              fontSize: 12, letterSpacing: '1.5px', textTransform: 'uppercase', opacity: loading ? 0.6 : 1 }}>
+              {loading ? <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}><div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />Please wait…</span>
+                : (mode === 'login' ? 'Sign In' : 'Create Account')}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Status Badge ─────────────────────────────────────────── */
+function StatusBadge({ status }) {
+  const s = STATUSES[status] || STATUSES.todo;
+  return (
+    <span className="tag" style={{ background: s.bg, color: s.fg }}>
+      <i className={`ti ${s.icon}`} style={{ fontSize: 10 }} />{s.label}
+    </span>
+  );
+}
+
+/* ── Task Card ────────────────────────────────────────────── */
+function TaskCard({ task, onEdit, onDelete, onStatusChange }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const p = PRIORITIES[task.priority] || PRIORITIES.medium;
+  const done = task.status === 'done';
+
+  const handleStatus = async (status) => {
+    setBusy(true);
+    try { await onStatusChange(task.id, status); } finally { setBusy(false); setOpen(false); }
+  };
+  const handleDelete = async () => {
+    setOpen(false);
+    if (confirm(`Delete "${task.title}"?`)) onDelete(task.id);
+  };
+
+  return (
+    <div className="task-card" style={{ borderLeft: `3px solid ${p.color}`, opacity: busy ? 0.6 : 1 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+            <StatusBadge status={task.status} />
+            <span style={{ fontSize: 10, color: p.color, letterSpacing: '1px', textTransform: 'uppercase' }}>{p.label}</span>
+            {task.category && <span className="tag" style={{ background: '#1e1e1e', color: '#555' }}>{task.category}</span>}
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: done ? '#555' : '#e8e4dc', textDecoration: done ? 'line-through' : 'none', lineHeight: 1.5, marginBottom: task.description ? 6 : 0 }}>
+            {task.title}
+          </div>
+          {task.description && <div style={{ fontSize: 12, color: '#666', lineHeight: 1.6, marginBottom: 4 }}>{task.description}</div>}
+          {task.dueDate && (
+            <div style={{ fontSize: 11, color: '#555', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+              <i className="ti ti-calendar" style={{ fontSize: 11 }} />
+              Due {new Date(task.dueDate).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </div>
+          )}
+        </div>
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <button className="icon-btn" style={{ width: 30, height: 30 }}
+            onClick={() => setOpen(v => !v)}
+            onBlur={() => setTimeout(() => setOpen(false), 160)}>
+            <i className="ti ti-dots-vertical" style={{ fontSize: 16 }} />
+          </button>
+          {open && (
+            <div className="dropdown-menu">
+              <div style={{ padding: '6px 14px 4px', fontSize: 10, color: '#444', letterSpacing: '1px', textTransform: 'uppercase' }}>Status</div>
+              {Object.entries(STATUSES).map(([k, s]) => (
+                <button key={k} className={`dropdown-item ${task.status === k ? 'active-status' : ''}`}
+                  onClick={() => handleStatus(k)}>
+                  <i className={`ti ${s.icon}`} style={{ fontSize: 13 }} />{s.label}
+                  {task.status === k && <i className="ti ti-check" style={{ fontSize: 12, marginLeft: 'auto' }} />}
+                </button>
+              ))}
+              <button className="dropdown-item" onClick={() => { onEdit(task); setOpen(false); }}>
+                <i className="ti ti-edit" style={{ fontSize: 13 }} />Edit task
+              </button>
+              <button className="dropdown-item danger" onClick={handleDelete}>
+                <i className="ti ti-trash" style={{ fontSize: 13 }} />Delete
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Task Modal ───────────────────────────────────────────── */
+function TaskModal({ task, onClose, onSave }) {
+  const [form, setForm] = useState({
+    title: '', description: '', priority: 'medium', category: '', dueDate: '',
+    ...(task ? { ...task, dueDate: task.dueDate ? task.dueDate.slice(0, 10) : '' } : {})
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const submit = async e => {
+    e.preventDefault();
+    if (!form.title.trim()) return;
+    setError(''); setLoading(true);
+    try { await onSave(form); onClose(); }
+    catch (err) { setError(err.message); setLoading(false); }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+          <span style={{ fontSize: 12, color: '#888', letterSpacing: '1.5px', textTransform: 'uppercase' }}>
+            {task ? 'Edit Task' : '+ New Task'}
+          </span>
+          <button className="icon-btn" style={{ width: 30, height: 30 }} onClick={onClose}>
+            <i className="ti ti-x" style={{ fontSize: 16 }} />
+          </button>
+        </div>
+        <form onSubmit={submit}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 11, color: '#555', display: 'block', marginBottom: 5, letterSpacing: '1px', textTransform: 'uppercase' }}>Title *</label>
+            <input value={form.title} onChange={e => set('title', e.target.value)} placeholder="What needs to be done?" required autoFocus />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 11, color: '#555', display: 'block', marginBottom: 5, letterSpacing: '1px', textTransform: 'uppercase' }}>Description</label>
+            <textarea value={form.description} onChange={e => set('description', e.target.value)} placeholder="Optional details…" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+            <div>
+              <label style={{ fontSize: 11, color: '#555', display: 'block', marginBottom: 5, letterSpacing: '1px', textTransform: 'uppercase' }}>Priority</label>
+              <select value={form.priority} onChange={e => set('priority', e.target.value)}>
+                {Object.entries(PRIORITIES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: '#555', display: 'block', marginBottom: 5, letterSpacing: '1px', textTransform: 'uppercase' }}>Category</label>
+              <input value={form.category} onChange={e => set('category', e.target.value)} placeholder="e.g. Backend" />
+            </div>
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ fontSize: 11, color: '#555', display: 'block', marginBottom: 5, letterSpacing: '1px', textTransform: 'uppercase' }}>Due Date</label>
+            <input type="date" value={form.dueDate} onChange={e => set('dueDate', e.target.value)} />
+          </div>
+          {error && (
+            <div style={{ fontSize: 12, color: '#c0392b', marginBottom: 14, padding: '9px 12px',
+              background: 'rgba(192,57,43,0.08)', borderRadius: 4, border: '1px solid rgba(192,57,43,0.2)' }}>
+              <i className="ti ti-alert-circle" style={{ marginRight: 6 }} />{error}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={{ padding: '9px 18px', background: 'transparent', border: '1px solid #333', color: '#888', fontSize: 12 }}>
+              Cancel
+            </button>
+            <button type="submit" disabled={loading} style={{ padding: '9px 22px', background: '#5a8a6a', color: '#e8e4dc', fontSize: 12, letterSpacing: '1px', textTransform: 'uppercase', opacity: loading ? 0.6 : 1 }}>
+              {loading ? 'Saving…' : (task ? 'Update Task' : 'Create Task')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ── Dashboard ────────────────────────────────────────────── */
+function Dashboard() {
+  const { user, logout } = useContext(AuthCtx);
+  const { tasks, loading, fetchTasks, addTask, updateTask, changeStatus, deleteTask } = useContext(TaskCtx);
+  const [modal, setModal] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
+
+  // Re-fetch when filter changes
+  useEffect(() => {
+    fetchTasks({ status: filter !== 'all' ? filter : '', search });
+  }, [filter]);
+
+  // Debounced search
+  useEffect(() => {
+    const t = setTimeout(() => fetchTasks({ status: filter !== 'all' ? filter : '', search }), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const stats = {
+    total: tasks.length,
+    todo: tasks.filter(t => t.status === 'todo').length,
+    inprogress: tasks.filter(t => t.status === 'inprogress').length,
+    done: tasks.filter(t => t.status === 'done').length,
+  };
+
+  const handleSave = async form => {
+    if (modal && modal.id) await updateTask(modal.id, form);
+    else await addTask(form);
+  };
+
+  const filterBtns = [
+    { key: 'all',        label: 'All',         count: stats.total,      color: '#888' },
+    { key: 'todo',       label: 'To Do',       count: stats.todo,       color: '#888' },
+    { key: 'inprogress', label: 'In Progress', count: stats.inprogress, color: '#4a9fd4' },
+    { key: 'done',       label: 'Done',        count: stats.done,       color: '#5a8a6a' },
+  ];
+
+  return (
+    <div style={{ minHeight: '100vh' }}>
+      {/* Navbar */}
+      <div style={{ borderBottom: '1px solid #1a1a1a', padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: '#0e0e0e', zIndex: 100 }}>
+        <div style={{ fontFamily: 'Fraunces, serif', fontSize: 26, fontWeight: 300, letterSpacing: '-1px' }}>
+          task<em style={{ fontStyle: 'italic', color: '#5a8a6a' }}>flow</em>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#1e2e1e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#5a8a6a', fontWeight: 500 }}>
+            {(user.name || user.email)[0].toUpperCase()}
+          </div>
+          <span style={{ fontSize: 12, color: '#555', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {user.name || user.email}
+          </span>
+          <button onClick={logout} style={{ background: 'transparent', border: '1px solid #222', color: '#555', padding: '6px 10px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <i className="ti ti-logout" style={{ fontSize: 13 }} />
+          </button>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 820, margin: '0 auto', padding: '2rem 1.5rem' }}>
+        {/* Stats */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: '2rem' }}>
+          {filterBtns.map(({ key, label, count, color }) => (
+            <button key={key} className={`stat-btn ${filter === key ? 'active' : ''}`} onClick={() => setFilter(key)}>
+              <div style={{ fontFamily: 'Fraunces, serif', fontSize: 28, fontWeight: 300, color, lineHeight: 1 }}>{count}</div>
+              <div style={{ fontSize: 10, color: '#444', marginTop: 5, letterSpacing: '1px', textTransform: 'uppercase' }}>{label}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* Toolbar */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: '1.5rem', alignItems: 'center' }}>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <i className="ti ti-search" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#444', pointerEvents: 'none' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks…" style={{ paddingLeft: 34 }} />
+          </div>
+          <button onClick={() => setModal({})} style={{ background: '#5a8a6a', color: '#e8e4dc', padding: '9px 16px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, letterSpacing: '1px', textTransform: 'uppercase', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <i className="ti ti-plus" style={{ fontSize: 15 }} />New Task
+          </button>
+        </div>
+
+        {/* Task list */}
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
+            <div className="spinner" style={{ width: 28, height: 28 }} />
+          </div>
+        ) : tasks.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '5rem 2rem', color: '#333' }}>
+            <i className="ti ti-checkbox" style={{ fontSize: 52, display: 'block', marginBottom: 14, color: '#2a2a2a' }} />
+            <div style={{ fontSize: 13 }}>No tasks yet — hit "New Task" to get started</div>
+          </div>
+        ) : (
+          tasks.map(task => (
+            <TaskCard key={task.id} task={task}
+              onEdit={t => setModal(t)}
+              onDelete={deleteTask}
+              onStatusChange={changeStatus} />
+          ))
+        )}
+
+        <div style={{ marginTop: '3rem', fontSize: 11, color: '#2a2a2a', textAlign: 'center', lineHeight: 1.8 }}>
+          MongoDB · Express · React · Node.js · JWT · bcrypt · Mongoose
+        </div>
+      </div>
+
+      {modal !== null && (
+        <TaskModal task={modal.id ? modal : null} onClose={() => setModal(null)} onSave={handleSave} />
+      )}
+    </div>
+  );
+}
+
+/* ── App Root ─────────────────────────────────────────────── */
+function App() {
+  const { user } = useContext(AuthCtx);
+  return user ? <TaskProvider><Dashboard /></TaskProvider> : <AuthScreen />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <AuthProvider><App /></AuthProvider>
+);
+</script>
+</body>
+</html>
